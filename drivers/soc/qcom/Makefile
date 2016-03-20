@@ -44,6 +44,8 @@ obj-$(CONFIG_MEM_SHARE_QMI_SERVICE)		+= memshare/
 obj-$(CONFIG_MSM_SPM) += spm.o spm_devices.o
 obj-y		+= socinfo.o
 
+obj-$(CONFIG_STATE_NOTIFIER)		+= state_notifier.o
+
 obj-$(CONFIG_MSM_HVC) += hvc.o
 obj-$(CONFIG_MSM_HYP_DEBUG) += hyp-debug.o
 
