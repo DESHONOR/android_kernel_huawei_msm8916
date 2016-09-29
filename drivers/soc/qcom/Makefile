@@ -45,6 +45,7 @@ obj-$(CONFIG_MSM_SPM) += spm.o spm_devices.o
 obj-y		+= socinfo.o
 
 obj-$(CONFIG_STATE_NOTIFIER)		+= state_notifier.o
+obj-$(CONFIG_MSM_LIMITER)		+= msm_limiter.o
 
 obj-$(CONFIG_MSM_HVC) += hvc.o
 obj-$(CONFIG_MSM_HYP_DEBUG) += hyp-debug.o

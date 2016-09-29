@@ -40,6 +40,9 @@
 #include <soc/qcom/rpm-smd.h>
 #include <soc/qcom/scm.h>
 #include <linux/sched/rt.h>
+#ifdef CONFIG_MSM_LIMITER
+#include <soc/qcom/limiter.h>
+#endif
 
 #define CREATE_TRACE_POINTS
 #define TRACE_MSM_THERMAL
@@ -2653,6 +2656,10 @@ static void do_freq_control(long temp)
 	for_each_possible_cpu(cpu) {
 		if (!(msm_thermal_info.bootup_freq_control_mask & BIT(cpu)))
 			continue;
+#ifdef CONFIG_MSM_LIMITER
+		if (max_freq == UINT_MAX)
+			max_freq =  cpuinfo_get_max(cpu);
+#endif
 		pr_info("Limiting CPU%d max frequency to %u. Temp:%ld\n",
 			cpu, max_freq, temp);
 		cpus[cpu].limited_max_freq = max_freq;
@@ -2667,6 +2674,9 @@ static void check_temp(struct work_struct *work)
 {
 	long temp = 0;
 	int ret = 0;
+
+	if (!msm_thermal_probed)
+		return;
 
 	do_therm_reset();
 
@@ -2838,6 +2848,7 @@ static __ref int do_freq_mitigation(void *data)
 	int ret = 0;
 	uint32_t cpu = 0, max_freq_req = 0, min_freq_req = 0;
 	struct sched_param param = {.sched_priority = MAX_RT_PRIO-1};
+	uint32_t max_core_freq = UINT_MAX;
 	struct device_clnt_data *clnt = NULL;
 	struct device_manager_data *cpu_dev = NULL;
 
@@ -2849,9 +2860,12 @@ static __ref int do_freq_mitigation(void *data)
 		INIT_COMPLETION(freq_mitigation_complete);
 
 		for_each_possible_cpu(cpu) {
+#ifdef CONFIG_MSM_LIMITER
+			max_core_freq = cpuinfo_get_max(cpu);
+#endif
 			max_freq_req = (cpus[cpu].max_freq) ?
 					msm_thermal_info.freq_limit :
-					UINT_MAX;
+					max_core_freq;
 			max_freq_req = min(max_freq_req,
 					cpus[cpu].user_max_freq);
 
@@ -3749,17 +3763,21 @@ cx_node_exit:
 static void __ref disable_msm_thermal(void)
 {
 	uint32_t cpu = 0;
+	uint32_t max_core_freq = UINT_MAX;
 
 	/* make sure check_temp is no longer running */
 	cancel_delayed_work_sync(&check_temp_work);
 
 	get_online_cpus();
 	for_each_possible_cpu(cpu) {
-		if (cpus[cpu].limited_max_freq == UINT_MAX &&
+#ifdef CONFIG_MSM_LIMITER
+		max_core_freq = cpuinfo_get_max(cpu);
+#endif
+		if (cpus[cpu].limited_max_freq == max_core_freq &&
 			cpus[cpu].limited_min_freq == 0)
 			continue;
 		pr_info("Max frequency reset for CPU%d\n", cpu);
-		cpus[cpu].limited_max_freq = UINT_MAX;
+		cpus[cpu].limited_max_freq = max_core_freq;
 		cpus[cpu].limited_min_freq = 0;
 		if (!SYNC_CORE(cpu))
 			update_cpu_freq(cpu);
@@ -3809,6 +3827,27 @@ static struct kernel_param_ops module_ops = {
 
 module_param_cb(enabled, &module_ops, &enabled, 0644);
 MODULE_PARM_DESC(enabled, "enforce thermal limit on cpu");
+
+/* Poll ms */
+module_param_named(poll_ms, msm_thermal_info.poll_ms, uint, 0664);
+
+/* Temp Threshold */
+module_param_named(temp_threshold, msm_thermal_info.limit_temp_degC,
+			int, 0664);
+module_param_named(core_limit_temp_degC, msm_thermal_info.core_limit_temp_degC,
+		   uint, 0644);
+module_param_named(hotplug_temp_degC, msm_thermal_info.hotplug_temp_degC,
+		   uint, 0644);
+module_param_named(freq_mitig_temp_degc,
+		   msm_thermal_info.freq_mitig_temp_degc, uint, 0644);
+
+/* Control Mask */
+module_param_named(freq_control_mask,
+		   msm_thermal_info.bootup_freq_control_mask, uint, 0644);
+module_param_named(core_control_mask, msm_thermal_info.core_control_mask,
+			uint, 0664);
+module_param_named(freq_mitig_control_mask,
+		   msm_thermal_info.freq_mitig_control_mask, uint, 0644);
 
 static ssize_t show_cc_enabled(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
