@@ -39,6 +39,7 @@
 #include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/sched.h>
+#include <soc/qcom/core_ctl.h>
 #include <linux/mutex.h>
 
 #include <trace/events/power.h>
@@ -459,7 +460,7 @@ static void update_running_avg(bool trigger_update)
 
 	spin_lock_irqsave(&state_lock, flags);
 
-	now = ktime_to_ms(ktime_get());
+	now = core_ctl_get_time();
 	if (now - rq_avg_timestamp_ms < rq_avg_period_ms - RQ_AVG_TOLERANCE) {
 		spin_unlock_irqrestore(&state_lock, flags);
 		return;
@@ -569,7 +570,7 @@ static bool eval_need(struct cpu_data *f)
 	need_flag = apply_limits(f, need_cpus) != apply_limits(f, f->need_cpus);
 	last_need = f->need_cpus;
 
-	now = ktime_to_ms(ktime_get());
+	now = core_ctl_get_time();
 
 	if (need_cpus == last_need) {
 		f->need_ts = now;
@@ -748,7 +749,7 @@ static void __ref do_hotplug(struct cpu_data *f)
 				break;
 
 			pr_debug("Trying to Online CPU%u\n", c->cpu);
-			if (cpu_up(c->cpu))
+			if (core_ctl_online_core(c->cpu))
 				pr_debug("Unable to Online CPU%u\n", c->cpu);
 		}
 
@@ -763,7 +764,7 @@ static void __ref do_hotplug(struct cpu_data *f)
 				break;
 
 			pr_debug("Trying to Online CPU%u\n", c->cpu);
-			if (cpu_up(c->cpu))
+			if (core_ctl_online_core(c->cpu))
 				pr_debug("Unable to Online CPU%u\n", c->cpu);
 		}
 	}
@@ -942,7 +943,7 @@ static int group_init(struct cpumask *mask)
 	if (likely(f->inited))
 		return 0;
 
-	dev = get_cpu_device(first_cpu);
+	dev = core_ctl_find_cpu_device(first_cpu);
 	if (!dev)
 		return -ENODEV;
 
@@ -1043,15 +1044,15 @@ static int __init core_ctl_init(void)
 	init_timer_deferrable(&rq_avg_timer);
 	rq_avg_timer.function = rq_avg_timer_func;
 
-	get_online_cpus();
+	core_ctl_block_hotplug();
 	for_each_online_cpu(cpu) {
-		policy = cpufreq_cpu_get(cpu);
+		policy = core_ctl_get_policy(cpu);
 		if (policy) {
 			group_init(policy->related_cpus);
-			cpufreq_cpu_put(policy);
+			core_ctl_put_policy(policy);
 		}
 	}
-	put_online_cpus();
+	core_ctl_unblock_hotplug();
 	mod_timer(&rq_avg_timer, round_to_nw_start());
 	return 0;
 }
